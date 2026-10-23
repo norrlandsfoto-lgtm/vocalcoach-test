@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VocalCoach Mikrofontest</title>
+<meta name="theme-color" content="#14161c">
+<style>
+/* Layout: one column, live readout on top, settings, then log and report. */
+:root{
+  --bg:#f4f5f8; --panel:#ffffff; --fg:#161a22; --muted:#5d6575; --line:#dde1e8;
+  --accent:#2f6fd6; --ok:#1d8a4e; --warn:#b26b00; --bad:#c0392b;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#14161c; --panel:#1d2029; --fg:#eef0f5; --muted:#9aa2b2; --line:#2e3340;
+    --accent:#6ea2ff; --ok:#4cc985; --warn:#f0b04a; --bad:#ff6b5e; color-scheme:dark; }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:16px}
+main{max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:14px;
+  padding-block:calc(16px + env(safe-area-inset-top,0px)) calc(32px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1{font-size:1.35rem;margin:0}
+h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 8px}
+p{margin:0;line-height:1.45}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.lead{color:var(--muted);font-size:.95rem}
+.readout{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end}
+.note{font-family:var(--mono);font-size:3.4rem;font-weight:700;line-height:1}
+.hz{font-family:var(--mono);font-size:1.4rem;text-align:right}
+.sub{font-family:var(--mono);font-size:.9rem;color:var(--muted)}
+.status{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.pill{font-size:.8rem;padding:4px 9px;border-radius:999px;border:1px solid var(--line);font-family:var(--mono)}
+.pill.ok{color:var(--ok);border-color:var(--ok)} .pill.warn{color:var(--warn);border-color:var(--warn)} .pill.bad{color:var(--bad);border-color:var(--bad)}
+.meter{height:10px;border-radius:5px;background:var(--line);overflow:hidden;margin-top:10px}
+.meter>div{height:100%;width:0;background:var(--accent)}
+canvas{width:100%;height:140px;display:block;margin-top:10px;border-radius:8px;background:var(--bg)}
+.buttons{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{font:inherit;font-weight:600;padding:16px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.45}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.row label{flex:1;min-width:0}
+.row small{display:block;color:var(--muted);font-size:.8rem}
+input[type=checkbox]{width:24px;height:24px}
+select{font:inherit;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+#log{font-family:var(--mono);font-size:.78rem;white-space:pre-wrap;max-height:220px;overflow:auto;margin:0;color:var(--muted)}
+textarea{width:100%;min-height:70px;font:inherit;font-size:.9rem;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+ol{margin:0;padding-left:20px;line-height:1.5}
+.q{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+.q:first-child{border-top:0}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>VocalCoach – mikrofontest</h1>
+    <p class="lead">Testar om mikrofonen kan analysera din röst medan Spotify spelar. Inget ljud sparas eller skickas någonstans; allt räknas ut i webbläsaren.</p>
+  </header>
+
+  <section class="panel" aria-live="polite">
+    <div class="readout">
+      <div><div class="note" id="note">–</div><div class="sub" id="cents">&nbsp;</div></div>
+      <div><div class="hz" id="hz">– Hz</div><div class="sub" id="conf" style="text-align:right">säkerhet –</div></div>
+    </div>
+    <div class="meter" aria-label="Ljudnivå"><div id="level"></div></div>
+    <canvas id="trace" aria-label="Tonhöjd över tid"></canvas>
+    <div class="status">
+      <span class="pill" id="pMic">mikrofon: av</span>
+      <span class="pill" id="pCtx">ljudmotor: –</span>
+      <span class="pill" id="pSess">audioSession: –</span>
+      <span class="pill" id="pFps">analyser/s: –</span>
+    </div>
+  </section>
+
+  <div class="buttons">
+    <button class="primary" id="start">Starta mikrofon</button>
+    <button id="stop" disabled>Stoppa</button>
+  </div>
+
+  <section class="panel">
+    <h2>Inställningar (välj före start)</h2>
+    <div class="row"><label for="ec">Ekoreducering<small>På kan dämpa eller pausa annan musik</small></label><input type="checkbox" id="ec"></div>
+    <div class="row"><label for="ns">Brusreducering</label><input type="checkbox" id="ns"></div>
+    <div class="row"><label for="agc">Automatisk nivå</label><input type="checkbox" id="agc"></div>
+    <div class="row"><label for="sess">Audio Session-läge<small id="sessSupport">kontrollerar stöd…</small></label>
+      <select id="sess">
+        <option value="">ändra inte</option>
+        <option value="auto">auto</option>
+        <option value="play-and-record">play-and-record</option>
+        <option value="ambient">ambient</option>
+        <option value="playback">playback</option>
+        <option value="transient">transient</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Så testar du</h2>
+    <ol>
+      <li>Starta en låt i Spotify, helst med hörlurar.</li>
+      <li>Kom tillbaka hit och tryck <b>Starta mikrofon</b>.</li>
+      <li>Sjung en ton och titta om tonen visas.</li>
+      <li>Lyssna: spelar Spotify fortfarande?</li>
+      <li>Tryck Stoppa, ändra en inställning och prova igen.</li>
+    </ol>
+  </section>
+
+  <section class="panel">
+    <h2>Vad hände? (fyll i för varje försök)</h2>
+    <div class="q"><label for="q1">Fortsatte Spotify spela?</label>
+      <select id="q1"><option value="">–</option><option>ja, normal volym</option><option>ja, men tystare</option><option>pausades</option><option>pausades, gick att starta igen</option></select></div>
+    <div class="q"><label for="q2">Visades din ton?</label>
+      <select id="q2"><option value="">–</option><option>ja, stabilt</option><option>ja, ryckigt</option><option>nej</option></select></div>
+    <div class="q"><label for="q3">Ljud ut</label>
+      <select id="q3"><option value="">–</option><option>hörlurar med sladd</option><option>AirPods/Bluetooth</option><option>högtalare</option></select></div>
+    <div style="margin-top:8px"><label for="notes" class="sub">Egna anteckningar</label><textarea id="notes"></textarea></div>
+    <div class="buttons" style="margin-top:10px">
+      <button id="addTrial">Spara försöket</button>
+      <button id="copy">Kopiera rapport</button>
+    </div>
+    <p class="sub" id="copyMsg" style="margin-top:8px"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Händelselogg</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script>
+"use strict";
+// ---------- YIN pitch detection (de Cheveigné & Kawahara 2002) ----------
+function yin(buf, sampleRate, minHz, maxHz, threshold){
+  const maxTau = Math.min(Math.floor(sampleRate / minHz), Math.floor(buf.length/2));
+  const minTau = Math.max(2, Math.floor(sampleRate / maxHz));
+  const W = buf.length - maxTau;
+  const d = new Float32Array(maxTau + 1);
+  for (let tau = 1; tau <= maxTau; tau++){
+    let s = 0;
+    for (let i = 0; i < W; i++){ const x = buf[i] - buf[i+tau]; s += x*x; }
+    d[tau] = s;
+  }
+  // cumulative mean normalized difference
+  const cm = new Float32Array(maxTau + 1); cm[0] = 1; let run = 0;
+  for (let tau = 1; tau <= maxTau; tau++){ run += d[tau]; cm[tau] = run > 0 ? d[tau]*tau/run : 1; }
+  let tau = -1;
+  for (let t = minTau; t <= maxTau; t++){
+    if (cm[t] < threshold){ while (t+1 <= maxTau && cm[t+1] < cm[t]) t++; tau = t; break; }
+  }
+  if (tau < 0) return null;
+  // parabolic interpolation
+  let better = tau;
+  if (tau > 1 && tau < maxTau){
+    const a = cm[tau-1], b = cm[tau], c = cm[tau+1], den = a + c - 2*b;
+    if (den !== 0) better = tau + (a - c) / (2*den);
+  }
+  return { hz: sampleRate / better, confidence: Math.max(0, Math.min(1, 1 - cm[tau])) };
+}
+const NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+function noteOf(hz){
+  const midi = 69 + 12*Math.log2(hz/440), n = Math.round(midi);
+  return { name: NAMES[((n%12)+12)%12] + (Math.floor(n/12) - 1), cents: Math.round((midi - n)*100) };
+}
+if (typeof module !== "undefined") module.exports = { yin, noteOf };
+
+if (typeof document !== "undefined"){
+const $ = id => document.getElementById(id);
+const logEl = $("log"); const logLines = [];
+const t0 = performance.now();
+function log(msg){
+  const line = ((performance.now()-t0)/1000).toFixed(1).padStart(6) + "s  " + msg;
+  logLines.push(line); logEl.textContent = logLines.slice(-200).join("\n"); logEl.scrollTop = logEl.scrollHeight;
+}
+function pill(el, text, cls){ el.textContent = text; el.className = "pill" + (cls ? " "+cls : ""); }
+
+const hasSession = !!(navigator.audioSession);
+$("sessSupport").textContent = hasSession ? "stöds i den här webbläsaren" : "stöds inte här (inställningen ignoreras)";
+$("sess").disabled = !hasSession;
+if (hasSession){
+  pill($("pSess"), "audioSession: " + navigator.audioSession.type + "/" + (navigator.audioSession.state||"?"));
+  navigator.audioSession.addEventListener?.("statechange", () => {
+    log("audioSession statechange → " + navigator.audioSession.state);
+    pill($("pSess"), "audioSession: " + navigator.audioSession.type + "/" + navigator.audioSession.state,
+         navigator.audioSession.state === "interrupted" ? "bad" : "");
+  });
+}
+log("Webbläsare: " + navigator.userAgent);
+
+let ctx = null, stream = null, analyser = null, src = null, raf = 0, buf = null;
+let frames = 0, fpsTimer = 0, lastFrameT = 0, maxGap = 0;
+const history = []; const HIST = 300;
+const trials = [];
+
+document.addEventListener("visibilitychange", () => log("sidan " + (document.hidden ? "dold (bytt app?)" : "synlig igen")));
+window.addEventListener("pagehide", () => log("pagehide"));
+
+async function start(){
+  $("start").disabled = true;
+  const constraints = { audio: {
+    echoCancellation: $("ec").checked, noiseSuppression: $("ns").checked, autoGainControl: $("agc").checked } };
+  try{
+    if (hasSession && $("sess").value){
+      navigator.audioSession.type = $("sess").value;
+      log("audioSession.type satt till " + navigator.audioSession.type);
+    }
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx.onstatechange = () => { log("ljudmotor → " + ctx.state); updCtx(); };
+    log("Begär mikrofon: " + JSON.stringify(constraints.audio));
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const track = stream.getAudioTracks()[0];
+    log("Mikrofon öppen: " + track.label + " inst=" + JSON.stringify(track.getSettings()));
+    track.onmute = () => { log("mikrofonspår MUTED"); pill($("pMic"), "mikrofon: tystad av systemet", "bad"); };
+    track.onunmute = () => { log("mikrofonspår unmuted"); pill($("pMic"), "mikrofon: på", "ok"); };
+    track.onended = () => { log("mikrofonspår ENDED"); pill($("pMic"), "mikrofon: avslutad", "bad"); };
+    if (ctx.state !== "running") await ctx.resume();
+    src = ctx.createMediaStreamSource(stream);
+    analyser = ctx.createAnalyser(); analyser.fftSize = 2048;
+    src.connect(analyser); // not connected to destination: nothing is played back
+    buf = new Float32Array(analyser.fftSize);
+    pill($("pMic"), "mikrofon: på", "ok"); updCtx();
+    log("Samplingsfrekvens " + ctx.sampleRate + " Hz");
+    $("stop").disabled = false;
+    frames = 0; maxGap = 0; lastFrameT = performance.now(); fpsTimer = setInterval(updFps, 1000);
+    loop();
+  }catch(e){
+    log("FEL: " + e.name + " – " + e.message);
+    pill($("pMic"), e.name === "NotAllowedError" ? "mikrofon: nekad" : "mikrofon: fel", "bad");
+    if (e.name === "NotAllowedError") log("Tillåt mikrofonen: aA-menyn i adressfältet → Webbplatsinställningar → Mikrofon.");
+    cleanup(); $("start").disabled = false;
+  }
+}
+function updCtx(){ if (ctx) pill($("pCtx"), "ljudmotor: " + ctx.state, ctx.state === "running" ? "ok" : "warn"); }
+function updFps(){
+  pill($("pFps"), "analyser/s: " + frames + (maxGap > 500 ? " (lucka " + (maxGap/1000).toFixed(1) + "s)" : ""),
+       frames > 20 ? "ok" : frames > 0 ? "warn" : "bad");
+  if (maxGap > 500) log("Analysen stod still i " + (maxGap/1000).toFixed(1) + " s");
+  frames = 0; maxGap = 0;
+}
+function loop(){
+  raf = requestAnimationFrame(loop);
+  const now = performance.now(); maxGap = Math.max(maxGap, now - lastFrameT); lastFrameT = now; frames++;
+  analyser.getFloatTimeDomainData(buf);
+  let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i]*buf[i];
+  const rms = Math.sqrt(s/buf.length), db = 20*Math.log10(rms + 1e-9);
+  $("level").style.width = Math.max(0, Math.min(100, (db + 70) * 100/60)) + "%";
+  let r = null;
+  if (db > -55) r = yin(buf, ctx.sampleRate, 60, 1200, 0.15);
+  if (r && r.confidence >= 0.8){
+    const n = noteOf(r.hz);
+    $("note").textContent = n.name; $("hz").textContent = r.hz.toFixed(1) + " Hz";
+    $("cents").textContent = (n.cents >= 0 ? "+" : "") + n.cents + " cent";
+    $("conf").textContent = "säkerhet " + Math.round(r.confidence*100) + " %";
+    history.push(r.hz);
+  } else {
+    $("note").textContent = "–"; $("hz").textContent = "– Hz";
+    $("cents").textContent = db <= -55 ? "för tyst" : "ingen säker ton";
+    $("conf").textContent = r ? "säkerhet " + Math.round(r.confidence*100) + " % (för låg)" : "säkerhet –";
+    history.push(null);
+  }
+  if (history.length > HIST) history.shift();
+  draw();
+}
+function draw(){
+  const c = $("trace"), dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w*dpr){ c.width = w*dpr; c.height = h*dpr; }
+  const g = c.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,w,h);
+  const cs = getComputedStyle(document.documentElement);
+  // log scale 60–1200 Hz, guide lines at C2..C6
+  const y = hz => h - (Math.log2(hz/60) / Math.log2(1200/60)) * h;
+  g.font = "10px " + cs.getPropertyValue("--mono"); g.fillStyle = cs.getPropertyValue("--muted"); g.strokeStyle = cs.getPropertyValue("--line");
+  [65.41,130.81,261.63,523.25,1046.5].forEach((f,i) => { const yy = y(f); g.beginPath(); g.moveTo(0,yy); g.lineTo(w,yy); g.stroke(); g.fillText("C"+(i+2), 4, yy-2); });
+  g.strokeStyle = cs.getPropertyValue("--accent"); g.lineWidth = 2; g.beginPath(); let pen = false;
+  history.forEach((hz,i) => { const x = i/(HIST-1)*w; if (hz == null){ pen = false; return; } const yy = y(hz); pen ? g.lineTo(x,yy) : g.moveTo(x,yy); pen = true; });
+  g.stroke();
+}
+function cleanup(){
+  cancelAnimationFrame(raf); clearInterval(fpsTimer);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  if (ctx) ctx.close().catch(()=>{});
+  stream = null; ctx = null; analyser = null;
+}
+function stop(){
+  cleanup(); log("Stoppad, mikrofonen avstängd");
+  pill($("pMic"), "mikrofon: av"); pill($("pCtx"), "ljudmotor: –"); pill($("pFps"), "analyser/s: –");
+  $("stop").disabled = true; $("start").disabled = false;
+}
+$("start").onclick = start; $("stop").onclick = stop;
+
+$("addTrial").onclick = () => {
+  const t = { nr: trials.length+1,
+    inst: "eko=" + ($("ec").checked?"på":"av") + " brus=" + ($("ns").checked?"på":"av") + " nivå=" + ($("agc").checked?"på":"av") + " session=" + ($("sess").value || "ändra inte"),
+    spotify: $("q1").value || "?", ton: $("q2").value || "?", ljud: $("q3").value || "?", notes: $("notes").value.trim() };
+  trials.push(t); log("Försök " + t.nr + " sparat: " + t.inst + " | Spotify: " + t.spotify + " | ton: " + t.ton + " | " + t.ljud);
+  $("q1").value = ""; $("q2").value = ""; $("notes").value = "";
+  $("copyMsg").textContent = "Försök " + t.nr + " sparat på sidan (försvinner om sidan laddas om).";
+};
+$("copy").onclick = async () => {
+  const text = "VOCALCOACH MIKROFONTEST\n" + new Date().toISOString() + "\n\nFÖRSÖK\n" +
+    (trials.length ? trials.map(t => t.nr + ". " + t.inst + "\n   Spotify: " + t.spotify + " | Ton visades: " + t.ton + " | Ljud: " + t.ljud + (t.notes ? "\n   " + t.notes : "")).join("\n") : "(inga sparade)") +
+    "\n\nLOGG\n" + logLines.join("\n");
+  try{ await navigator.clipboard.writeText(text); $("copyMsg").textContent = "Rapporten är kopierad. Klistra in den i chatten."; }
+  catch(e){ logEl.textContent = text; $("copyMsg").textContent = "Kunde inte kopiera automatiskt. Markera texten i loggen och kopiera själv."; }
+};
+}
+</script>
+</body>
+</html>
